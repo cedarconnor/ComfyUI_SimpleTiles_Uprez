@@ -34,10 +34,18 @@ class TileSplit:
         overlap_y = int(overlap * (tile_height / tile_width))
 
         tiles = []
-        for y in range(0, height - tile_height + 1, tile_height - overlap_y):
-            for x in range(0, width - tile_width + 1, tile_width - overlap_x):
+        step_y = max(1, tile_height - overlap_y)
+        step_x = max(1, tile_width - overlap_x)
+        
+        for y in range(0, height - tile_height + 1, step_y):
+            for x in range(0, width - tile_width + 1, step_x):
                 tile = image[:, y : y + tile_height, x : x + tile_width, :]
                 tiles.append(tile)
+
+        # Handle case where no tiles were generated
+        if not tiles:
+            # Return the original image as a single tile
+            return [image]
 
         # Convert tiles list to a tensor if needed
         tiles_tensor = torch.stack(tiles).squeeze(1)
@@ -77,8 +85,10 @@ class TileMerge:
         # for 3x3: custom_order = [0, 2, 6, 8, 1, 3, 5, 7, 4] # First 4 corners, then the sides, then the center
 
         # Calculate grid dimensions
-        rows = (height - tile_height) // (tile_height - overlap_y) + 1
-        cols = (width - tile_width) // (tile_width - overlap_x) + 1
+        step_y = max(1, tile_height - overlap_y)
+        step_x = max(1, tile_width - overlap_x)
+        rows = (height - tile_height) // step_y + 1
+        cols = (width - tile_width) // step_x + 1
 
         # Calculate the center of the grid
         center_row, center_col = rows // 2, cols // 2
@@ -100,10 +110,10 @@ class TileMerge:
 
         print("Custom order: {}".format(custom_order))
 
-        ys = [y for y in range(0, height - tile_height + 1, tile_height - overlap_y)]
-        xs = [x for x in range(0, width - tile_width + 1, tile_width - overlap_x)]
+        ys = [y for y in range(0, height - tile_height + 1, step_y)]
+        xs = [x for x in range(0, width - tile_width + 1, step_x)]
         for idx in custom_order:
-            y = ys[idx // len(ys)]
+            y = ys[idx // len(xs)]
             x = xs[idx % len(xs)]
 
             tile = tiles[idx]

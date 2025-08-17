@@ -102,10 +102,16 @@ class DynamicTileSplit:
             print("Tile coordinate: {}".format(tile_coordinate))
             iteration += 1
 
+            # Ensure coordinates are within bounds
+            y_start = max(0, tile_coordinate[1])
+            y_end = min(image_height, tile_coordinate[1] + tile_height)
+            x_start = max(0, tile_coordinate[0])
+            x_end = min(image_width, tile_coordinate[0] + tile_width)
+
             image_tile = image[
                 :,
-                tile_coordinate[1] : tile_coordinate[1] + tile_height,
-                tile_coordinate[0] : tile_coordinate[0] + tile_width,
+                y_start:y_end,
+                x_start:x_end,
                 :,
             ]
 
