@@ -17,16 +17,16 @@ class TileSplit:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "tile_height": ("INT", {"default": 64, "min": 64, "max": 4096}),
-                "tile_width": ("INT", {"default": 64, "min": 64, "max": 4096}),
-                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096}),
+                "image": ("IMAGE", {"tooltip": "Input image tensor to split into grid tiles."}),
+                "tile_height": ("INT", {"default": 64, "min": 64, "max": 4096, "tooltip": "Tile height in pixels for the legacy splitter."}),
+                "tile_width": ("INT", {"default": 64, "min": 64, "max": 4096, "tooltip": "Tile width in pixels for the legacy splitter."}),
+                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "tooltip": "Horizontal overlap in pixels between legacy tiles."}),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "split"
-    CATEGORY = "utils"
+    CATEGORY = "SimpleTiles Uprez/Legacy"
 
     def split(self, image, tile_height, tile_width, overlap):
         height, width = image.shape[1], image.shape[2]
@@ -58,17 +58,17 @@ class TileMerge:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096}),
-                "blend": ("INT", {"default": 64, "min": 0, "max": 4096}),
-                "final_height": ("INT", {"default": 2048, "min": 0, "max": 9 * 4096}),
-                "final_width": ("INT", {"default": 2048, "min": 0, "max": 9 * 4096}),
+                "images": ("IMAGE", {"tooltip": "Tiles to blend back into a single image."}),
+                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "tooltip": "Overlap value that was used when splitting the tiles."}),
+                "blend": ("INT", {"default": 64, "min": 0, "max": 4096, "tooltip": "Blend width in pixels to feather tile seams."}),
+                "final_height": ("INT", {"default": 2048, "min": 0, "max": 9 * 4096, "tooltip": "Target height of the reconstructed image."}),
+                "final_width": ("INT", {"default": 2048, "min": 0, "max": 9 * 4096, "tooltip": "Target width of the reconstructed image."}),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "blend_tiles"
-    CATEGORY = "utils"
+    CATEGORY = "SimpleTiles Uprez/Legacy"
 
     def blend_tiles(self, images, overlap, blend, final_height, final_width):
         tiles = images
@@ -152,18 +152,18 @@ class TileCalc:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "tile_height": ("INT", {"default": 64, "min": 64, "max": 4096}),
-                "tile_width": ("INT", {"default": 64, "min": 64, "max": 4096}),
-                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096}),
-                "tile_width_n": ("INT", {"default": 3, "min": 1, "max": 9}),
-                "tile_height_n": ("INT", {"default": 3, "min": 1, "max": 9}),
+                "tile_height": ("INT", {"default": 64, "min": 64, "max": 4096, "tooltip": "Height of each tile in pixels."}),
+                "tile_width": ("INT", {"default": 64, "min": 64, "max": 4096, "tooltip": "Width of each tile in pixels."}),
+                "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "tooltip": "Overlap between tiles in pixels."}),
+                "tile_width_n": ("INT", {"default": 3, "min": 1, "max": 9, "tooltip": "Number of tiles across the width."}),
+                "tile_height_n": ("INT", {"default": 3, "min": 1, "max": 9, "tooltip": "Number of tiles across the height."}),
             }
         }
 
     RETURN_TYPES = ("INT", "INT")
     RETURN_NAMES = ("final_height", "final_width")
     FUNCTION = "calc"
-    CATEGORY = "utils"
+    CATEGORY = "SimpleTiles Uprez/Legacy"
 
     def calc(self, tile_height, tile_width, overlap, tile_width_n, tile_height_n):
         overlap_x = overlap
@@ -187,3 +187,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TileMerge": "TileMerge",
     "TileCalc": "TileCalc",
 }
+

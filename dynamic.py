@@ -1,9 +1,14 @@
 import sys
 import os
+from datetime import datetime
+import re
 
 import torch
+from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
+
+import folder_paths
 
 
 def order_by_center_last(tiles, image_width, image_height, tile_width, tile_height):
@@ -72,17 +77,17 @@ class DynamicTileSplit:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "tile_width": ("INT", {"default": 512, "min": 1, "max": 10000}),
-                "tile_height": ("INT", {"default": 512, "min": 1, "max": 10000}),
-                "overlap": ("INT", {"default": 128, "min": 1, "max": 10000}),
-                "offset": ("INT", {"default": 0, "min": 0, "max": 10000}),
+                "image": ("IMAGE", {"tooltip": "Source image tensor to split into tiles."}),
+                "tile_width": ("INT", {"default": 512, "min": 1, "max": 10000, "tooltip": "Tile width in pixels before upscaling."}),
+                "tile_height": ("INT", {"default": 512, "min": 1, "max": 10000, "tooltip": "Tile height in pixels before upscaling."}),
+                "overlap": ("INT", {"default": 128, "min": 1, "max": 10000, "tooltip": "Overlap between adjacent tiles in pixels."}),
+                "offset": ("INT", {"default": 0, "min": 0, "max": 10000, "tooltip": "Initial offset applied to the first tile row and column."}),
             }
         }
 
     RETURN_TYPES = ("IMAGE", "TILE_CALC")
     FUNCTION = "process"
-    CATEGORY = "ipadapter"
+    CATEGORY = "SimpleTiles Uprez/Dynamic"
 
     def process(self, image, tile_width, tile_height, overlap, offset):
         image_height = image.shape[1]
@@ -118,7 +123,7 @@ class DynamicTileSplit:
             image_tiles.append(image_tile)
 
         tiles_tensor = torch.stack(image_tiles).squeeze(1)
-        tile_calc = (overlap, image_height, image_width, offset)
+        tile_calc = (overlap, image_height, image_width, offset, tile_height, tile_width)
 
         return (tiles_tensor, tile_calc)
 
@@ -128,32 +133,53 @@ class DynamicTileMerge:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "blend": ("INT", {"default": 64, "min": 0, "max": 4096}),
-                "tile_calc": ("TILE_CALC",),
+                "images": ("IMAGE", {"tooltip": "Batch of tiles to merge back into the full image."}),
+                "blend": ("INT", {"default": 64, "min": 0, "max": 4096, "tooltip": "Number of pixels to blend across tile edges."}),
+                "tile_calc": ("TILE_CALC", {"tooltip": "Tile layout metadata returned by DynamicTileSplit."}),
+            },
+            "optional": {
+                "auto_save": ("BOOLEAN", {"default": False, "tooltip": "Automatically save the merged result to the output directory."}),
+                "filename_prefix": ("STRING", {"default": "tile_merge", "tooltip": "Filename prefix used when auto-saving the merged image."}),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "utils"
+    CATEGORY = "SimpleTiles Uprez/Dynamic"
 
-    def process(self, images, blend, tile_calc):
-        overlap, final_height, final_width, offset = tile_calc
+    def process(self, images, blend, tile_calc, auto_save=False, filename_prefix="tile_merge"):
+        filename_prefix = self._sanitize_prefix(filename_prefix)
         tile_height = images.shape[1]
         tile_width = images.shape[2]
-        print("Tile height: {}".format(tile_height))
-        print("Tile width: {}".format(tile_width))
-        print("Final height: {}".format(final_height))
-        print("Final width: {}".format(final_width))
-        print("Overlap: {}".format(overlap))
+
+        if len(tile_calc) >= 6:
+            overlap, base_height, base_width, offset, base_tile_height, base_tile_width = tile_calc[:6]
+        else:
+            overlap, base_height, base_width, offset = tile_calc
+            base_tile_height = tile_height
+            base_tile_width = tile_width
+
+        scale_y = tile_height / base_tile_height if base_tile_height else 1.0
+        scale_x = tile_width / base_tile_width if base_tile_width else 1.0
+        average_scale = (scale_x + scale_y) / 2.0
+
+        scaled_final_height = max(tile_height, int(round(base_height * scale_y)))
+        scaled_final_width = max(tile_width, int(round(base_width * scale_x)))
+        scaled_overlap = max(0, int(round(overlap * average_scale)))
+        scaled_offset = int(round(offset * average_scale))
+
+        print("Tile height (scaled): {}".format(tile_height))
+        print("Tile width (scaled): {}".format(tile_width))
+        print("Base height: {} -> scaled height: {}".format(base_height, scaled_final_height))
+        print("Base width: {} -> scaled width: {}".format(base_width, scaled_final_width))
+        print("Overlap: {} -> scaled overlap: {}".format(overlap, scaled_overlap))
 
         tile_coordinates = generate_tiles(
-            final_width, final_height, tile_width, tile_height, overlap, offset
+            scaled_final_width, scaled_final_height, tile_width, tile_height, scaled_overlap, scaled_offset
         )
 
         print("Tile coordinates: {}".format(tile_coordinates))
-        original_shape = (1, final_height, final_width, 3)
+        original_shape = (1, scaled_final_height, scaled_final_width, 3)
         count = torch.zeros(original_shape, dtype=images.dtype)
         output = torch.zeros(original_shape, dtype=images.dtype)
 
@@ -195,7 +221,38 @@ class DynamicTileMerge:
             count[:, y : y + tile_height, x : x + tile_width, :] = 1
 
             index += 1
+        saved_path = None
+        if auto_save:
+            try:
+                saved_path = self._save_merged_image(output, filename_prefix)
+            except Exception as exc:
+                print(f"SimpleTilesUprezDynamicTileMerge: Failed to save merged image ({exc})")
+        if saved_path:
+            print(f"SimpleTilesUprezDynamicTileMerge: Saved merged image to {saved_path}")
         return [output]
+
+    @staticmethod
+    def _sanitize_prefix(name: str) -> str:
+        sanitized = re.sub(r"[^0-9A-Za-z._-]+", "_", name).strip("_")
+        return sanitized or "tile_merge"
+
+    def _save_merged_image(self, tensor: torch.Tensor, prefix: str) -> str:
+        output_dir = folder_paths.get_output_directory()
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"{prefix}_{timestamp}.png"
+        full_path = os.path.join(output_dir, filename)
+
+        image_tensor = tensor[0].clamp(0, 1)
+        image_array = (
+            image_tensor.mul(255.0)
+            .round()
+            .to(torch.uint8)
+            .cpu()
+            .numpy()
+        )
+        Image.fromarray(image_array).save(full_path)
+        return full_path
 
 
 NODE_CLASS_MAPPINGS = {
@@ -207,3 +264,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DynamicTileSplit": "DynamicTileSplit",
     "DynamicTileMerge": "DynamicTileMerge",
 }
+
+
+
+
+

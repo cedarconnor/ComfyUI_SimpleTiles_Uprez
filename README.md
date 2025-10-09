@@ -1,5 +1,5 @@
 
-# SimpleTiles
+# ComfyUI_SimpleTiles_Uprez
 ## DynamicTileSplit / DynamicTileMerge
 ![](dynamic.png)
 Splits image into tiles. Overlap value decides how much overlap there is between tiles on y axis, x axis is calculated to have the same ratio to image height as y axis.
